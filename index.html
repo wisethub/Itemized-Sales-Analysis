@@ -1,0 +1,856 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Revenue Analysis Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+
+  body {
+    font-family: Inter, system-ui, sans-serif;
+    background:#0d1117;
+    color:#e6edf3;
+    min-height:100vh;
+    padding:20px;
+  }
+
+  .ctrl-bar {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    padding:12px 16px;
+    margin-bottom:18px;
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:12px;
+  }
+
+  .load-btn,
+  .action-btn {
+    padding:10px 18px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:700;
+    background:#238636;
+    color:#fff;
+    transition:.15s;
+  }
+
+  .load-btn:hover,
+  .action-btn:hover {
+    opacity:.92;
+  }
+
+  .load-btn:disabled {
+    opacity:.45;
+    cursor:not-allowed;
+  }
+
+  .prog-wrap {
+    flex:1;
+    min-width:120px;
+    height:6px;
+    background:#30363d;
+    border-radius:6px;
+    overflow:hidden;
+  }
+
+  .prog-bar {
+    height:100%;
+    width:0%;
+    background:#58a6ff;
+    transition:width .25s;
+  }
+
+  .status-txt {
+    font-size:12px;
+    color:#8b949e;
+    white-space:nowrap;
+  }
+
+  .err-box {
+    color:#f85149;
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:10px;
+    padding:16px;
+    font-size:13px;
+    margin-bottom:16px;
+  }
+
+  .filters {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:12px;
+    margin-bottom:18px;
+  }
+
+  .filter-card,
+  .card {
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:14px;
+    padding:16px;
+  }
+
+  .filter-card label {
+    display:block;
+    font-size:12px;
+    color:#8b949e;
+    margin-bottom:6px;
+  }
+
+  .filter-card input,
+  .filter-card select {
+    width:100%;
+    background:#0d1117;
+    color:#e6edf3;
+    border:1px solid #30363d;
+    border-radius:8px;
+    padding:10px;
+    outline:none;
+  }
+
+  .grid-stats {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:14px;
+    margin-bottom:18px;
+  }
+
+  .stat-title {
+    color:#8b949e;
+    font-size:12px;
+    margin-bottom:8px;
+  }
+
+  .stat-value {
+    font-size:26px;
+    font-weight:700;
+  }
+
+  .stat-sub {
+    color:#8b949e;
+    margin-top:8px;
+    font-size:12px;
+  }
+
+  .chart-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+    gap:18px;
+    margin-bottom:18px;
+  }
+
+  .chart-wrap {
+    position:relative;
+    height:340px;
+  }
+
+  .table-wrap {
+    overflow:auto;
+    margin-top:10px;
+  }
+
+  table {
+    width:100%;
+    border-collapse:collapse;
+    min-width:900px;
+  }
+
+  th, td {
+    padding:12px;
+    border-bottom:1px solid #30363d;
+    text-align:left;
+    font-size:13px;
+  }
+
+  th {
+    background:#0d1117;
+    color:#58a6ff;
+    position:sticky;
+    top:0;
+    z-index:2;
+  }
+
+  tr:hover {
+    background:#1c2128;
+  }
+
+  .badge {
+    display:inline-block;
+    padding:4px 8px;
+    border-radius:999px;
+    font-size:11px;
+    font-weight:700;
+    background:#21262d;
+    color:#58a6ff;
+  }
+
+  .danger {
+    color:#f85149;
+    font-weight:700;
+  }
+
+  .success {
+    color:#3fb950;
+    font-weight:700;
+  }
+
+  .empty {
+    padding:40px;
+    text-align:center;
+    color:#8b949e;
+    background:#161b22;
+    border:1px solid #30363d;
+    border-radius:12px;
+  }
+
+  .topbar-actions {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+
+  h2 {
+    font-size:18px;
+    margin-bottom:14px;
+  }
+
+  .footer-note {
+    margin-top:12px;
+    color:#8b949e;
+    font-size:12px;
+  }
+</style>
+
+</head>
+
+<body>
+
+<div class="ctrl-bar">
+  <button class="load-btn" id="load-btn" onclick="loadAllRecords()">⬇ Load All Records</button>
+
+  <div class="prog-wrap">
+    <div class="prog-bar" id="prog-bar"></div>
+  </div>
+
+  <span class="status-txt" id="status-txt">
+    Press Load to fetch data from Manager
+  </span>
+</div>
+
+<div id="app"></div>
+
+<script>
+/* ══════════════════════════════════
+   postMessage helper — DO NOT MODIFY
+══════════════════════════════════ */
+function postMessageWithResponse(message) {
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('Timeout — is this running inside Manager.io?'));
+    }, 15000);
+    function handler(event) {
+      if (event.data?.type?.endsWith('-response') && event.data?.requestId === requestId) {
+        clearTimeout(timer);
+        window.removeEventListener('message', handler);
+        resolve(event.data.body);
+      }
+    }
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ ...message, requestId }, '*');
+  });
+}
+
+/* ══════════════════════════════════
+   Generic paginated fetch
+══════════════════════════════════ */
+async function fetchAllPages(endpoint, onProgress) {
+  const allItems = [];
+  let nextToken = null;
+  let pageNum = 0;
+
+  do {
+    const path = nextToken
+      ? endpoint + '?PageSize=99999&next_page_token=' + encodeURIComponent(nextToken)
+      : endpoint + '?PageSize=99999';
+
+    const data = await postMessageWithResponse({
+      type:'api-request',
+      method:'GET',
+      path
+    });
+
+    const page = Array.isArray(data)
+      ? data
+      : (data.items || data.data || []);
+
+    allItems.push(...page);
+
+    nextToken =
+      data.next_page_token ||
+      data.nextPageToken ||
+      data._links?.next?.href ||
+      null;
+
+    pageNum++;
+
+    if (onProgress) {
+      onProgress(endpoint, allItems.length, pageNum);
+    }
+
+    if (pageNum >= 1000) break;
+
+  } while (nextToken);
+
+  return allItems;
+}
+
+/* ══════════════════════════════════
+   getCreditNotes
+══════════════════════════════════ */
+async function getCreditNotes(onProgress) {
+  const allItems = [];
+  let nextToken  = null;
+  let pageNum    = 0;
+  let apiTotal   = null;
+
+  do {
+    const path = nextToken
+      ? '/api4/credit-notes?PageSize=99999&next_page_token=' + encodeURIComponent(nextToken)
+      : '/api4/credit-notes?PageSize=99999';
+
+    const data = await postMessageWithResponse({ type: 'api-request', method: 'GET', path });
+
+    const page = Array.isArray(data) ? data : (data.items || data.data || []);
+    allItems.push(...page);
+
+    nextToken = data.next_page_token || data.nextPageToken || data._links?.next?.href || null;
+
+    if (apiTotal === null) {
+      apiTotal = data.totalCount ?? data.total ?? data.count ?? data._metadata?.totalCount ?? null;
+    }
+
+    pageNum++;
+    if (onProgress) onProgress(allItems.length, apiTotal, pageNum);
+    if (pageNum >= 1000) break;
+
+  } while (nextToken);
+
+  return allItems;
+}
+
+let rawInvoices = [];
+let inventoryMap = {};
+let revenueChart;
+let trendChart;
+
+/* ══════════════════════════════════
+   Load all datasets
+══════════════════════════════════ */
+async function loadAllRecords() {
+
+  const btn = document.getElementById('load-btn');
+  const bar = document.getElementById('prog-bar');
+  const status = document.getElementById('status-txt');
+  const app = document.getElementById('app');
+
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+
+  app.innerHTML = '';
+  bar.style.width = '0%';
+
+  try {
+
+    status.textContent = 'Loading inventory items...';
+
+    const inventoryItems = await fetchAllPages('/api4/inventory-item-batch');
+
+    inventoryMap = {};
+
+    inventoryItems.forEach(i => {
+      inventoryMap[i?.key] = i?.item || {};
+    });
+
+    bar.style.width = '30%';
+
+    status.textContent = 'Loading sales invoices...';
+
+    rawInvoices = await fetchAllPages('/api4/sales-invoice-batch');
+
+    bar.style.width = '100%';
+
+    status.textContent = `✓ ${rawInvoices.length.toLocaleString()} invoices loaded`;
+
+    btn.disabled = false;
+    btn.textContent = '↺ Reload';
+
+    render(rawInvoices);
+
+  } catch(err) {
+
+    btn.disabled = false;
+    btn.textContent = '↺ Retry';
+
+    status.textContent = '⚠ ' + err.message;
+
+    app.innerHTML = `
+      <div class="err-box">
+        <strong>API Connection Failed</strong><br><br>
+        ${err.message}<br><br>
+        Make sure this extension is opened inside Manager.io and API4 is enabled.
+      </div>
+    `;
+  }
+}
+
+/* ══════════════════════════════════
+   Currency formatter
+══════════════════════════════════ */
+function fmt(v) {
+  return '₦' + Number(v || 0).toLocaleString(undefined,{
+    minimumFractionDigits:2,
+    maximumFractionDigits:2
+  });
+}
+
+function humanDate(d) {
+  if (!d) return '-';
+  return new Date(d).toLocaleDateString();
+}
+
+/* ══════════════════════════════════
+   Main render
+══════════════════════════════════ */
+function render(invoices) {
+
+  const app = document.getElementById('app');
+
+  if (!Array.isArray(invoices) || !invoices.length) {
+    app.innerHTML = `
+      <div class="empty">
+        No invoice records found.
+      </div>
+    `;
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="filters">
+
+      <div class="filter-card">
+        <label>Start Date</label>
+        <input type="date" id="start-date">
+      </div>
+
+      <div class="filter-card">
+        <label>End Date</label>
+        <input type="date" id="end-date">
+      </div>
+
+      <div class="filter-card">
+        <label>Item Filter</label>
+        <input type="text" id="search-item" placeholder="Search item name...">
+      </div>
+
+      <div class="filter-card">
+        <label>Actions</label>
+        <div class="topbar-actions">
+          <button class="action-btn" onclick="applyFilters()">▶ Run Analysis</button>
+          <button class="action-btn" onclick="exportTable()">⬇ Export CSV</button>
+        </div>
+      </div>
+
+    </div>
+
+    <div id="dashboard"></div>
+  `;
+
+  const dates = invoices
+    .map(i => i?.item?.issueDate)
+    .filter(Boolean)
+    .map(d => new Date(d));
+
+  if (dates.length) {
+    const min = new Date(Math.min(...dates));
+    const max = new Date(Math.max(...dates));
+
+    document.getElementById('start-date').value = min.toISOString().split('T')[0];
+    document.getElementById('end-date').value = max.toISOString().split('T')[0];
+  }
+
+  applyFilters();
+}
+
+/* ══════════════════════════════════
+   Apply filters
+══════════════════════════════════ */
+function applyFilters() {
+
+  const startDate = document.getElementById('start-date').value;
+  const endDate = document.getElementById('end-date').value;
+  const search = document.getElementById('search-item').value.trim().toLowerCase();
+
+  const dashboard = document.getElementById('dashboard');
+
+  const itemAgg = {};
+  const monthlyAgg = {};
+
+  let totalRevenue = 0;
+  let totalQty = 0;
+
+  rawInvoices.forEach(inv => {
+
+    const issueDate = inv?.item?.issueDate;
+
+    if (!issueDate) return;
+
+    const dateOnly = issueDate.split('T')[0];
+
+    if (startDate && dateOnly < startDate) return;
+    if (endDate && dateOnly > endDate) return;
+
+    const monthKey = dateOnly.substring(0,7);
+
+    (inv?.item?.lines || []).forEach(line => {
+
+      const itemId = line?.item;
+      if (!itemId) return;
+
+      const invItem = inventoryMap[itemId] || {};
+
+      const itemName =
+        invItem?.itemName ||
+        invItem?.nameWithCode ||
+        'Unnamed Item';
+
+      if (search && !itemName.toLowerCase().includes(search)) {
+        return;
+      }
+
+      const qty = Number(line?.qty || 0);
+      const price = Number(line?.salesUnitPrice || 0);
+      const revenue = qty * price;
+
+      totalRevenue += revenue;
+      totalQty += qty;
+
+      if (!itemAgg[itemName]) {
+        itemAgg[itemName] = {
+          item:itemName,
+          qty:0,
+          revenue:0,
+          prices:[],
+          invoices:0
+        };
+      }
+
+      itemAgg[itemName].qty += qty;
+      itemAgg[itemName].revenue += revenue;
+      itemAgg[itemName].prices.push(price);
+      itemAgg[itemName].invoices++;
+
+      if (!monthlyAgg[monthKey]) {
+        monthlyAgg[monthKey] = 0;
+      }
+
+      monthlyAgg[monthKey] += revenue;
+
+    });
+
+  });
+
+  const rows = Object.values(itemAgg)
+    .map(r => {
+
+      const minPrice = Math.min(...r.prices);
+      const maxPrice = Math.max(...r.prices);
+
+      const changePct =
+        minPrice > 0
+          ? ((maxPrice - minPrice) / minPrice) * 100
+          : 0;
+
+      return {
+        ...r,
+        avgPrice:r.qty ? r.revenue / r.qty : 0,
+        minPrice,
+        maxPrice,
+        changePct,
+        concentration: totalRevenue
+          ? (r.revenue / totalRevenue) * 100
+          : 0
+      };
+    })
+    .sort((a,b) => b.revenue - a.revenue);
+
+  if (!rows.length) {
+    dashboard.innerHTML = `
+      <div class="empty">
+        No matching records found for selected filter.
+      </div>
+    `;
+    return;
+  }
+
+  const top10 = rows.slice(0,10);
+
+  dashboard.innerHTML = `
+
+    <div class="grid-stats">
+
+      <div class="card">
+        <div class="stat-title">Total Revenue</div>
+        <div class="stat-value">${fmt(totalRevenue)}</div>
+        <div class="stat-sub">${rows.length.toLocaleString()} unique items</div>
+      </div>
+
+      <div class="card">
+        <div class="stat-title">Total Quantity Sold</div>
+        <div class="stat-value">${totalQty.toLocaleString()}</div>
+        <div class="stat-sub">Across filtered invoices</div>
+      </div>
+
+      <div class="card">
+        <div class="stat-title">Top Revenue Item</div>
+        <div class="stat-value" style="font-size:18px">
+          ${top10[0]?.item || '-'}
+        </div>
+        <div class="stat-sub">${fmt(top10[0]?.revenue || 0)}</div>
+      </div>
+
+      <div class="card">
+        <div class="stat-title">Revenue Concentration</div>
+        <div class="stat-value">
+          ${(top10.reduce((a,b)=>a+b.concentration,0)).toFixed(1)}%
+        </div>
+        <div class="stat-sub">Top 10 items share</div>
+      </div>
+
+    </div>
+
+    <div class="chart-grid">
+
+      <div class="card">
+        <h2>Top Selling Items by Revenue</h2>
+        <div class="chart-wrap">
+          <canvas id="revenueChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Revenue Trend by Month</h2>
+        <div class="chart-wrap">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card">
+
+      <h2>Customer Revenue Analysis</h2>
+
+      <div class="table-wrap">
+
+        <table id="analysis-table">
+
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item</th>
+              <th>Qty Sold</th>
+              <th>Total Revenue</th>
+              <th>Avg Price</th>
+              <th>Min Price</th>
+              <th>Max Price</th>
+              <th>Price Change</th>
+              <th>Revenue Share</th>
+              <th>Invoices</th>
+            </tr>
+          </thead>
+
+          <tbody>
+
+            ${rows.map((r,i)=>`
+
+              <tr>
+                <td>${i+1}</td>
+                <td>${r.item}</td>
+                <td>${r.qty.toLocaleString()}</td>
+                <td>${fmt(r.revenue)}</td>
+                <td>${fmt(r.avgPrice)}</td>
+                <td>${fmt(r.minPrice)}</td>
+                <td>${fmt(r.maxPrice)}</td>
+
+                <td class="${r.changePct > 0 ? 'danger' : 'success'}">
+                  ${r.changePct.toFixed(1)}%
+                </td>
+
+                <td>
+                  <span class="badge">
+                    ${r.concentration.toFixed(2)}%
+                  </span>
+                </td>
+
+                <td>${r.invoices.toLocaleString()}</td>
+
+              </tr>
+
+            `).join('')}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+      <div class="footer-note">
+        Filter supports same-day analysis (example: 2026-05-10 to 2026-05-10).
+      </div>
+
+    </div>
+  `;
+
+  renderCharts(top10, monthlyAgg);
+}
+
+/* ══════════════════════════════════
+   Charts
+══════════════════════════════════ */
+function renderCharts(top10, monthlyAgg) {
+
+  if (revenueChart) revenueChart.destroy();
+  if (trendChart) trendChart.destroy();
+
+  const revenueCtx = document.getElementById('revenueChart');
+  const trendCtx = document.getElementById('trendChart');
+
+  revenueChart = new Chart(revenueCtx, {
+    type:'bar',
+    data:{
+      labels: top10.map(i => i.item.substring(0,20)),
+      datasets:[{
+        label:'Revenue',
+        data: top10.map(i => i.revenue),
+        backgroundColor:'#58a6ff'
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{
+          labels:{ color:'#e6edf3' }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{ color:'#8b949e' },
+          grid:{ color:'#30363d' }
+        },
+        y:{
+          ticks:{ color:'#8b949e' },
+          grid:{ color:'#30363d' }
+        }
+      }
+    }
+  });
+
+  const sortedMonths = Object.keys(monthlyAgg).sort();
+
+  trendChart = new Chart(trendCtx, {
+    type:'line',
+    data:{
+      labels: sortedMonths,
+      datasets:[{
+        label:'Revenue Trend',
+        data: sortedMonths.map(m => monthlyAgg[m]),
+        borderColor:'#3fb950',
+        backgroundColor:'rgba(63,185,80,0.2)',
+        tension:.3,
+        fill:true
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{
+          labels:{ color:'#e6edf3' }
+        }
+      },
+      scales:{
+        x:{
+          ticks:{ color:'#8b949e' },
+          grid:{ color:'#30363d' }
+        },
+        y:{
+          ticks:{ color:'#8b949e' },
+          grid:{ color:'#30363d' }
+        }
+      }
+    }
+  });
+
+}
+
+/* ══════════════════════════════════
+   Export CSV
+══════════════════════════════════ */
+function exportTable() {
+
+  const table = document.getElementById('analysis-table');
+
+  if (!table) return;
+
+  let csv = [];
+
+  const rows = table.querySelectorAll('tr');
+
+  rows.forEach(row => {
+
+    const cols = row.querySelectorAll('th,td');
+
+    const data = [...cols]
+      .map(col => '"' + col.innerText.replace(/"/g,'""') + '"')
+      .join(',');
+
+    csv.push(data);
+
+  });
+
+  const blob = new Blob([csv.join('\n')], {
+    type:'text/csv;charset=utf-8;'
+  });
+
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = 'customer_revenue_analysis.csv';
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  document.body.removeChild(link);
+}
+</script>
+
+</body>
+</html>
